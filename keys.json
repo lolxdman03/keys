@@ -1,0 +1,12 @@
+{
+  "keys": {
+    "1234": {
+      "active": true,
+      "expires": "2027-12-31"
+    },
+    "aa": {
+      "active": false,
+      "expires": "2027-06-30"
+    }
+  }
+}
