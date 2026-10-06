@@ -213,6 +213,29 @@
     }
 
     // =========================================================================
+    // SELF-ELEMENT EXCLUSION (kendi panelimize ve key overlay'e tıklamayı önle)
+    // =========================================================================
+    function isOwnElement(el) {
+        if (!el) return true;
+        // Kendi overlay panelimiz
+        const panel = document.getElementById('perculus-auto-panel');
+        if (panel && (el === panel || panel.contains(el))) return true;
+        // Key prompt overlay elementimiz
+        const keyOverlay = document.getElementById('perculus-key-overlay');
+        if (keyOverlay && (el === keyOverlay || keyOverlay.contains(el))) return true;
+        // Tampermonkey & Greasemonkey UI elementleri
+        if (el.closest && el.closest('#perculus-auto-panel')) return true;
+        if (el.closest && el.closest('#perculus-key-overlay')) return true;
+        if (el.closest && el.closest('[id*="tampermonkey"]')) return true;
+        if (el.closest && el.closest('[class*="tampermonkey"]')) return true;
+        if (el.closest && el.closest('[id*="greasemonkey"]')) return true;
+        // Shadow root check
+        const root = el.getRootNode && el.getRootNode();
+        if (root && root.host && (root.host.id === 'perculus-auto-panel' || root.host.id === 'perculus-key-overlay')) return true;
+        return false;
+    }
+
+    // =========================================================================
     // CLICK SIMULATION (React uyumlu)
     // =========================================================================
     function simulateClick(element) {
@@ -335,6 +358,9 @@
         );
 
         for (const el of clickables) {
+            // Kendi panelimizi ve key overlay'i atla
+            if (isOwnElement(el)) continue;
+
             // textContent kontrolü
             const textContent = el.textContent || el.innerText || '';
             if (textMatchesAttendance(textContent)) {
@@ -367,7 +393,7 @@
 
                 for (let i = 0; i < xpathResult.snapshotLength; i++) {
                     const el = xpathResult.snapshotItem(i);
-                    if (!el || !isElementVisible(el)) continue;
+                    if (!el || !isElementVisible(el) || isOwnElement(el)) continue;
 
                     // Zaten candidates'da var mı kontrol et
                     const alreadyFound = candidates.some(c => c.element === el || c.element.contains(el) || el.contains(c.element));
@@ -388,7 +414,7 @@
                     const shadowButtons = host.shadowRoot.querySelectorAll('button, a, [role="button"]');
                     for (const el of shadowButtons) {
                         const text = el.textContent || '';
-                        if (textMatchesAttendance(text) && isElementVisible(el)) {
+                        if (textMatchesAttendance(text) && isElementVisible(el) && !isOwnElement(el)) {
                             candidates.push({ element: el, source: 'shadow', matchedText: text.trim().substring(0, 30) });
                         }
                     }
@@ -407,12 +433,12 @@
         );
 
         for (const modal of modals) {
-            if (!isElementVisible(modal)) continue;
+            if (!isElementVisible(modal) || isOwnElement(modal)) continue;
 
             const modalButtons = modal.querySelectorAll('button, a, [role="button"], div, span');
             for (const btn of modalButtons) {
                 const text = btn.textContent || '';
-                if (textMatchesAttendance(text) && isElementVisible(btn)) {
+                if (textMatchesAttendance(text) && isElementVisible(btn) && !isOwnElement(btn)) {
                     const alreadyFound = candidates.some(c => c.element === btn);
                     if (!alreadyFound) {
                         candidates.push({ element: btn, source: 'modal', matchedText: text.trim().substring(0, 30) });
@@ -431,7 +457,7 @@
                 const iframeButtons = iframeDoc.querySelectorAll('button, a, [role="button"]');
                 for (const btn of iframeButtons) {
                     const text = btn.textContent || '';
-                    if (textMatchesAttendance(text)) {
+                    if (textMatchesAttendance(text) && !isOwnElement(btn)) {
                         candidates.push({ element: btn, source: 'iframe', matchedText: text.trim().substring(0, 30) });
                     }
                 }
@@ -523,8 +549,8 @@
                     if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
                         for (const node of mutation.addedNodes) {
                             if (node.nodeType === Node.ELEMENT_NODE) {
-                                // Kendi panel'imizi ignore et
-                                if (node.id === 'perculus-auto-panel') continue;
+                                // Kendi panel'imizi, key modal'ı ve içindeki tüm child'ları ignore et
+                                if (isOwnElement(node)) continue;
 
                                 const text = node.textContent || '';
                                 if (textMatchesAttendance(text)) {
@@ -570,7 +596,7 @@
                     // Attribute değişmiş mi? (visibility/display değişiklikleri)
                     if (mutation.type === 'attributes') {
                         const el = mutation.target;
-                        if (el.nodeType === Node.ELEMENT_NODE) {
+                        if (el.nodeType === Node.ELEMENT_NODE && !isOwnElement(el)) {
                             const text = el.textContent || '';
                             if (textMatchesAttendance(text)) {
                                 shouldScan = true;
@@ -922,12 +948,14 @@
         const recentEl = document.getElementById('pap-recent');
 
         if (clicksEl) clicksEl.textContent = STATE.totalClicks.toString();
-        if (lastEl) lastEl.textContent = STATE.lastClickedText || '-';
+        // Panel içinde literal hedef kelime geçmesin diye sanitize et (kısır döngüyü önleme garantisi)
+        const safeText = (text) => (text || '-').replace(/buradayım/gi, 'B***dayım').replace(/burdayım/gi, 'B**dayım');
+        if (lastEl) lastEl.textContent = safeText(STATE.lastClickedText);
         if (scansEl) scansEl.textContent = STATE.scanCount.toString();
 
         if (recentEl && STATE.recentClicks.length > 0) {
             recentEl.innerHTML = STATE.recentClicks.slice(-5).reverse().map(c =>
-                `<div class="recent-item"><span class="time">${c.time}</span><span>${c.text}</span></div>`
+                `<div class="recent-item"><span class="time">${c.time}</span><span>${safeText(c.text)}</span></div>`
             ).join('');
         }
     }
